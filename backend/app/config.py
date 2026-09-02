@@ -4,13 +4,13 @@ from typing import Optional
 
 class Settings(BaseSettings):
     MODEL_PROVIDER: str = "gemini"
-    MODEL_NAME: str = "gemini-3.6-flash"
+    MODEL_NAME: str = "gemini-1.5-flash"
     GROQ_API_KEY: Optional[str] = None
     GEMINI_API_KEY: Optional[str] = None
     
     LLM_FALLBACK_ENABLED: bool = True
     LLM_FALLBACK_PROVIDER: str = "groq"
-    GROQ_FALLBACK_MODEL: str = "llama-3.3-70b-versatile"
+    GROQ_FALLBACK_MODEL: str = "llama3-70b-8192"
     
     FRONTEND_URL: str = "http://localhost:5173"
 
