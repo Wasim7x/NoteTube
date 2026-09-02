@@ -1,0 +1,81 @@
+@import "tailwindcss";
+@config "../tailwind.config.js";
+
+@layer base {
+  body {
+    @apply bg-background text-textMain antialiased selection:bg-primary/30;
+  }
+}
+
+/* Custom Markdown Styles */
+.markdown-body {
+  @apply text-base leading-relaxed;
+}
+
+.markdown-body h1 {
+  @apply text-3xl font-bold mt-8 mb-4 pb-2 border-b border-gray-200 text-gray-900;
+}
+
+.markdown-body h2 {
+  @apply text-2xl font-bold mt-8 mb-4 text-gray-800;
+}
+
+.markdown-body h3 {
+  @apply text-xl font-semibold mt-6 mb-3 text-gray-800;
+}
+
+.markdown-body h4 {
+  @apply text-lg font-semibold mt-6 mb-2 text-gray-800;
+}
+
+.markdown-body p {
+  @apply mb-4 text-gray-700;
+}
+
+.markdown-body ul {
+  @apply list-disc pl-6 mb-4 space-y-2 text-gray-700 marker:text-gray-400;
+}
+
+.markdown-body ol {
+  @apply list-decimal pl-6 mb-4 space-y-2 text-gray-700 marker:text-gray-400;
+}
+
+.markdown-body li > p {
+  @apply mb-0;
+}
+
+.markdown-body blockquote {
+  @apply border-l-4 border-primary/50 bg-primary/5 pl-4 py-2 my-4 italic text-gray-700 rounded-r-md;
+}
+
+.markdown-body table {
+  @apply w-full text-left border-collapse my-6;
+}
+
+.markdown-body th {
+  @apply bg-gray-100 font-semibold p-3 border border-gray-300;
+}
+
+.markdown-body td {
+  @apply p-3 border border-gray-300;
+}
+
+.markdown-body pre {
+  @apply my-4 rounded-lg overflow-x-auto shadow-sm;
+}
+
+.markdown-body code:not(pre code) {
+  @apply bg-gray-100 text-pink-600 px-1.5 py-0.5 rounded-md text-sm font-mono border border-gray-200;
+}
+
+.markdown-body strong {
+  @apply font-semibold text-gray-900;
+}
+
+.markdown-body a {
+  @apply text-primary hover:text-primaryHover underline decoration-primary/30 underline-offset-2 transition-colors;
+}
+
+.markdown-body hr {
+  @apply my-8 border-gray-200;
+}
