@@ -1,28 +1,49 @@
-from app.config import settings
+import logging
 from app.services.llm.base import LLMProvider
-from app.services.llm.groq import GroqProvider
+from app.services.llm.registry import (
+    register_provider,
+    get_registered_provider_class,
+    PROVIDER_METADATA
+)
 from app.services.llm.gemini import GeminiProvider
-from app.services.llm.fallback import FallbackProvider
+from app.services.llm.openai import OpenAIProvider
+from app.services.llm.anthropic import AnthropicProvider
+from app.services.llm.groq import GroqProvider
+from app.services.llm.openrouter import OpenRouterProvider
 
-def _create_provider(name: str) -> LLMProvider:
-    if name == "groq":
-        return GroqProvider(
-            api_key=settings.GROQ_API_KEY,
-            model=settings.GROQ_FALLBACK_MODEL if settings.MODEL_PROVIDER.lower() != "groq" else settings.MODEL_NAME
-        )
-    elif name == "gemini":
-        return GeminiProvider(
-            api_key=settings.GEMINI_API_KEY,
-            model=settings.MODEL_NAME
-        )
-    else:
-        raise ValueError(f"Unsupported LLM Provider configured: {name}")
+logger = logging.getLogger(__name__)
 
-def get_llm_provider() -> LLMProvider:
-    primary_provider = _create_provider(settings.MODEL_PROVIDER.lower())
-    
-    if settings.LLM_FALLBACK_ENABLED and settings.MODEL_PROVIDER.lower() != settings.LLM_FALLBACK_PROVIDER.lower():
-        fallback_provider = _create_provider(settings.LLM_FALLBACK_PROVIDER.lower())
-        return FallbackProvider(primary=primary_provider, fallback=fallback_provider)
+# Register all out-of-the-box providers
+register_provider("gemini", GeminiProvider)
+register_provider("openai", OpenAIProvider)
+register_provider("anthropic", AnthropicProvider)
+register_provider("groq", GroqProvider)
+register_provider("openrouter", OpenRouterProvider)
+
+def create_llm_provider(provider: str, model: str, api_key: str) -> LLMProvider:
+    """
+    Factory function to instantiate an LLMProvider dynamically given
+    the user's provider choice, model name, and API key.
+    """
+    if not provider or not provider.strip():
+        raise ValueError("Provider must be specified.")
         
-    return primary_provider
+    provider_clean = provider.strip().lower()
+    
+    if not api_key or not api_key.strip():
+        raise ValueError(f"API key is required for {provider_clean.capitalize()}.")
+        
+    api_key_clean = api_key.strip()
+    
+    # If model is empty, default to provider's default model if available
+    model_clean = model.strip() if model and model.strip() else ""
+    if not model_clean and provider_clean in PROVIDER_METADATA:
+        model_clean = PROVIDER_METADATA[provider_clean].default_model
+        
+    if not model_clean:
+        raise ValueError("Model name must be specified.")
+
+    provider_cls = get_registered_provider_class(provider_clean)
+    logger.info(f"Instantiating LLM provider={provider_clean} with model={model_clean}")
+    
+    return provider_cls(api_key=api_key_clean, model=model_clean)

@@ -1,12 +1,12 @@
 from app.prompts.notes_prompt import NOTES_SYSTEM_PROMPT, CHUNK_SUMMARY_PROMPT, FINAL_MERGE_PROMPT
-from app.services.llm.factory import get_llm_provider
+from app.services.llm.base import LLMProvider
 import logging
 
 logger = logging.getLogger(__name__)
 
 class SummarizationService:
-    def __init__(self):
-        self.provider = get_llm_provider()
+    def __init__(self, provider: LLMProvider):
+        self.provider = provider
         self.chunk_size = 15000  # approximate character limit per chunk for processing
 
     def chunk_text(self, text: str) -> list[str]:

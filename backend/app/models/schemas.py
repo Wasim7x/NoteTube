@@ -1,8 +1,15 @@
-from pydantic import BaseModel, HttpUrl
-from typing import Optional
+from pydantic import BaseModel, Field
+from typing import Optional, List
+from app.services.llm.registry import ModelOption, ProviderInfo
+
+class ProvidersResponse(BaseModel):
+    providers: List[ProviderInfo]
 
 class GenerateNotesRequest(BaseModel):
     youtube_url: str
+    provider: str = Field(..., description="LLM provider: gemini, openai, anthropic, groq, openrouter")
+    model: str = Field(..., description="Model identifier or custom model name")
+    api_key: str = Field(..., description="API key for the selected provider")
 
 class VideoMetadata(BaseModel):
     id: str
@@ -17,7 +24,6 @@ class GenerateNotesResponse(BaseModel):
     success: bool
     provider: Optional[str] = None
     model: Optional[str] = None
-    fallback_used: bool = False
     video: Optional[VideoMetadata] = None
     notes: Optional[NotesData] = None
     error: Optional[str] = None

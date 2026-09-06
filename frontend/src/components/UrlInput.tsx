@@ -20,9 +20,18 @@ const Youtube = ({ className }: { className?: string }) => (
 interface UrlInputProps {
   onSubmit: (url: string) => void;
   isLoading: boolean;
+  children?: React.ReactNode;
+  hasApiKey: boolean;
+  onMissingApiKey: () => void;
 }
 
-export const UrlInput: React.FC<UrlInputProps> = ({ onSubmit, isLoading }) => {
+export const UrlInput: React.FC<UrlInputProps> = ({
+  onSubmit,
+  isLoading,
+  children,
+  hasApiKey,
+  onMissingApiKey,
+}) => {
   const [url, setUrl] = useState('');
   const [error, setError] = useState('');
 
@@ -31,58 +40,71 @@ export const UrlInput: React.FC<UrlInputProps> = ({ onSubmit, isLoading }) => {
     setError('');
 
     if (!url.trim()) {
-      setError('Please enter a YouTube URL');
+      setError('Please enter a YouTube video URL.');
       return;
     }
 
     const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.?be)\/.+$/;
-    if (!youtubeRegex.test(url)) {
-      setError('Please enter a valid YouTube video URL');
+    if (!youtubeRegex.test(url.trim())) {
+      setError('Please enter a valid YouTube video URL (e.g. https://www.youtube.com/watch?v=...)');
       return;
     }
 
-    onSubmit(url);
+    if (!hasApiKey) {
+      onMissingApiKey();
+      return;
+    }
+
+    onSubmit(url.trim());
   };
 
   return (
-    <div className="w-full max-w-2xl mx-auto mt-20 px-4">
-      <div className="text-center mb-10">
-        <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4 tracking-tight">
+    <div className="w-full max-w-2xl mx-auto mt-12 px-4">
+      <div className="text-center mb-8">
+        <h1 className="text-4xl md:text-5xl font-bold text-gray-900 mb-3 tracking-tight">
           Turn any video into <span className="text-primary">structured notes.</span>
         </h1>
-        <p className="text-lg text-gray-500">
-          Extract the transcript &rarr; Understand the content &rarr; Generate beautiful study notes.
+        <p className="text-base md:text-lg text-gray-500">
+          Extract transcript &bull; Select any AI model &bull; Generate rich study notes
         </p>
       </div>
 
-      <form onSubmit={handleSubmit} className="relative">
-        <div className="relative flex items-center w-full h-16 rounded-2xl bg-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 hover:border-gray-200 hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-all overflow-hidden focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary">
-          <div className="pl-6 text-gray-400">
-            <Youtube className="w-6 h-6" />
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Dynamic Model Configuration Section */}
+        {children}
+
+        {/* YouTube URL input */}
+        <div className="relative">
+          <div className="relative flex items-center w-full h-16 rounded-2xl bg-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 hover:border-gray-200 hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-all overflow-hidden focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary">
+            <div className="pl-5 text-red-600">
+              <Youtube className="w-6 h-6" />
+            </div>
+            <input
+              id="youtube-url-input"
+              type="url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              disabled={isLoading}
+              placeholder="Paste YouTube video URL here..."
+              className="w-full h-full bg-transparent border-none outline-none px-4 text-gray-800 placeholder:text-gray-400 text-base"
+            />
+            <button
+              id="generate-notes-button"
+              type="submit"
+              disabled={isLoading}
+              className="h-12 mr-2 px-6 bg-primary hover:bg-primaryHover text-white rounded-xl font-medium flex items-center justify-center gap-2 transition-all shadow-sm hover:shadow active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed cursor-pointer"
+            >
+              <span className="hidden sm:inline">Generate Notes</span>
+              <span className="sm:hidden">Generate</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
           </div>
-          <input
-            type="url"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            disabled={isLoading}
-            placeholder="Paste YouTube video URL..."
-            className="w-full h-full bg-transparent border-none outline-none px-4 text-gray-700 placeholder:text-gray-400 text-lg"
-          />
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="h-12 mr-2 px-6 bg-primary hover:bg-primaryHover text-white rounded-xl font-medium flex items-center justify-center gap-2 transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
-          >
-            <span className="hidden sm:inline">Generate Notes</span>
-            <span className="sm:hidden">Generate</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
+          {error && (
+            <p className="mt-2 text-sm text-red-500 font-medium px-2">
+              {error}
+            </p>
+          )}
         </div>
-        {error && (
-          <p className="absolute -bottom-7 left-2 text-sm text-red-500 font-medium">
-            {error}
-          </p>
-        )}
       </form>
     </div>
   );
