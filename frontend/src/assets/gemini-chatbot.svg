@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <clipPath id="headClip">
+      <rect x="116" y="105" width="280" height="265" rx="115" />
+    </clipPath>
+  </defs>
+
+  <style>
+    /* Idle Floating & Tilting Motion */
+    @keyframes floatAndTilt {
+      0%, 100% {
+        transform: translateY(0px) rotate(0deg);
+      }
+      25% {
+        transform: translateY(-14px) rotate(-6deg);
+      }
+      50% {
+        transform: translateY(-4px) rotate(0deg);
+      }
+      75% {
+        transform: translateY(-16px) rotate(6deg);
+      }
+    }
+
+    /* Springy Antenna Sway */
+    @keyframes antennaSway {
+      0%, 100% {
+        transform: rotate(0deg);
+      }
+      20% {
+        transform: rotate(-10deg);
+      }
+      40% {
+        transform: rotate(4deg);
+      }
+      70% {
+        transform: rotate(10deg);
+      }
+      85% {
+        transform: rotate(-4deg);
+      }
+    }
+
+    /* Periodic Eye Blink */
+    @keyframes eyeBlink {
+      0%, 92%, 100% {
+        transform: scaleY(1);
+      }
+      96% {
+        transform: scaleY(0.1);
+      }
+    }
+
+    .bot-group {
+      transform-origin: 256px 360px;
+      animation: floatAndTilt 3s ease-in-out infinite;
+    }
+
+    .antenna-group {
+      transform-origin: 256px 110px;
+      animation: antennaSway 3s ease-in-out infinite;
+    }
+
+    .eye-group {
+      transform-origin: 256px 210px;
+      animation: eyeBlink 3.8s ease-in-out infinite;
+    }
+  </style>
+
+  <!-- Complete Animated Character -->
+  <g class="bot-group">
+    <!-- Antenna -->
+    <g class="antenna-group">
+      <rect x="250" y="62" width="12" height="46" rx="6" fill="#2E75F6"/>
+      <circle cx="256" cy="60" r="14" fill="#2E75F6"/>
+    </g>
+
+    <!-- Side Pods / Ears -->
+    <rect x="92" y="210" width="30" height="75" rx="15" fill="#2E75F6"/>
+    <rect x="390" y="210" width="30" height="75" rx="15" fill="#2E75F6"/>
+
+    <!-- Head Body & Lower Shadow -->
+    <g clip-path="url(#headClip)">
+      <rect x="116" y="105" width="280" height="265" rx="115" fill="#2E75F6"/>
+      <path d="M 120 375 C 240 330 360 320 396 260 L 396 380 L 120 380 Z" fill="#1C55D4"/>
+    </g>
+
+    <!-- Screen / Visor -->
+    <rect x="146" y="152" width="220" height="126" rx="63" fill="#FFFFFF"/>
+
+    <!-- Eyes -->
+    <g class="eye-group">
+      <rect x="210" y="193" width="16" height="38" rx="8" fill="#1C55D4"/>
+      <rect x="286" y="193" width="16" height="38" rx="8" fill="#1C55D4"/>
+    </g>
+  </g>
+</svg>

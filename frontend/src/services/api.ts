@@ -1,7 +1,26 @@
 import axios from 'axios';
-import type { GenerateNotesRequest, GenerateNotesResponse, ProvidersResponse } from '../types';
+import type {
+    GenerateNotesRequest,
+    GenerateNotesResponse,
+    ProvidersResponse,
+    ExtractSlidesRequest,
+    VideoSlidesResponse,
+    ValidateProviderRequest,
+    ValidateProviderResponse,
+    LoadVideoResponse,
+    QuickSummaryRequest,
+    QuickSummaryResponse,
+    DetailedNotesRequest,
+    DetailedNotesResponse,
+    RAGQueryRequest,
+    RAGQueryResponse,
+    RAGStatusResponse,
+    HealthResponse,
+    BackendHealthState
+} from '../types';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+export const API_URL: string = (import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api').replace(/\/+$/, '');
+export const BACKEND_BASE_URL: string = API_URL.replace(/\/api\/?$/, '');
 
 const apiClient = axios.create({
     baseURL: API_URL,
@@ -17,9 +36,22 @@ export const api = {
             return response.data;
         } catch (error: any) {
             console.error('Failed to fetch providers from backend, using default fallback list.', error);
-            // Fallback default list if backend is not yet reached
             return {
                 providers: [
+                    {
+                        id: 'ollama',
+                        name: 'Ollama (Local)',
+                        description: "Run open-source LLMs locally on your own machine without cloud API keys.",
+                        default_model: 'qwen3:1.7b',
+                        key_placeholder: 'Not required (Local)',
+                        help_url: 'https://ollama.com',
+                        requires_api_key: false,
+                        models: [
+                            { id: 'qwen3:1.7b', name: 'Qwen 3 (1.7B)', description: 'Fast & lightweight local model', is_recommended: true },
+                            { id: 'qwen3.5:latest', name: 'Qwen 3.5 (9.7B)', description: 'High capability local model' },
+                            { id: 'llama3.2:3b', name: 'Llama 3.2 (3B)', description: 'Lightweight Meta local model' },
+                        ]
+                    },
                     {
                         id: 'gemini',
                         name: 'Google Gemini',
@@ -101,9 +133,313 @@ export const api = {
             return response.data;
         } catch (error: any) {
             if (error.response && error.response.data) {
-                 throw new Error(error.response.data.detail || error.response.data.error || 'An error occurred while generating notes.');
+                throw new Error(error.response.data.detail || error.response.data.error || 'An error occurred while generating notes.');
             }
             throw new Error('Could not connect to the backend server. Please verify the backend is running.');
         }
-    }
+    },
+
+    generateNotesStream: async (
+        data: GenerateNotesRequest,
+        onEvent: (event: any) => void
+    ): Promise<GenerateNotesResponse> => {
+        const streamUrl = `${API_URL}/notes/generate-stream`;
+        const response = await fetch(streamUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'text/event-stream',
+            },
+            body: JSON.stringify(data),
+        });
+
+        if (!response.ok) {
+            let errorMsg = 'Failed to generate notes.';
+            try {
+                const errJson = await response.json();
+                errorMsg = errJson.detail || errJson.error || errorMsg;
+            } catch {
+                errorMsg = `Server error (status ${response.status})`;
+            }
+            throw new Error(errorMsg);
+        }
+
+        if (!response.body) {
+            throw new Error('Response body stream is not available in browser.');
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+        let finalResponse: GenerateNotesResponse | null = null;
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const parts = buffer.split('\n\n');
+            buffer = parts.pop() || '';
+
+            for (const part of parts) {
+                const lines = part.split('\n');
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const jsonStr = line.slice(6).trim();
+                        if (jsonStr) {
+                            try {
+                                const parsed = JSON.parse(jsonStr);
+                                onEvent(parsed);
+                                if (parsed.type === 'complete' && parsed.response) {
+                                    finalResponse = parsed.response;
+                                } else if (parsed.type === 'error') {
+                                    throw new Error(parsed.error || 'Generation failed.');
+                                }
+                            } catch (e: any) {
+                                if (e.message && !e.message.includes('JSON')) {
+                                    throw e;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (finalResponse) {
+            return finalResponse;
+        }
+
+        throw new Error('Stream concluded without returning complete notes.');
+    },
+
+    extractSlides: async (data: ExtractSlidesRequest): Promise<VideoSlidesResponse> => {
+        try {
+            const response = await apiClient.post<VideoSlidesResponse>('/slides/extract', data);
+            return response.data;
+        } catch (error: any) {
+            if (error.response && error.response.data) {
+                throw new Error(error.response.data.detail || error.response.data.message || 'Failed to extract chapter slides.');
+            }
+            throw new Error('Could not connect to the backend server to extract slides.');
+        }
+    },
+
+    getSlides: async (videoId: string): Promise<VideoSlidesResponse> => {
+        try {
+            const response = await apiClient.get<VideoSlidesResponse>(`/slides/${encodeURIComponent(videoId)}`);
+            return response.data;
+        } catch (error: any) {
+            if (error.response && error.response.data) {
+                throw new Error(error.response.data.detail || 'Failed to retrieve chapter slides.');
+            }
+            throw new Error('Could not connect to the backend server to retrieve slides.');
+        }
+    },
+
+    getSlideImageUrl: (videoId: string, chapterId: string): string => {
+        return `${API_URL}/slides/${encodeURIComponent(videoId)}/images/${encodeURIComponent(chapterId)}`;
+    },
+
+    getDownloadPptUrl: (videoId: string): string => {
+        return `${API_URL}/slides/${encodeURIComponent(videoId)}/download-ppt`;
+    },
+
+    validateProvider: async (data: ValidateProviderRequest): Promise<ValidateProviderResponse> => {
+        try {
+            const response = await apiClient.post<ValidateProviderResponse>('/providers/validate', data);
+            return response.data;
+        } catch (error: any) {
+            if (error.response && error.response.data) {
+                return {
+                    success: false,
+                    provider: data.provider,
+                    model: data.model || '',
+                    message: error.response.data.detail || 'Connection test failed.',
+                    error: error.response.data.detail || 'Connection test failed.'
+                };
+            }
+            return {
+                success: false,
+                provider: data.provider,
+                model: data.model || '',
+                message: 'Could not connect to the backend server.',
+                error: 'Could not connect to the backend server.'
+            };
+        }
+    },
+
+    loadVideo: async (youtubeUrl: string): Promise<LoadVideoResponse> => {
+        try {
+            const response = await apiClient.post<LoadVideoResponse>('/video/load', { youtube_url: youtubeUrl });
+            return response.data;
+        } catch (error: any) {
+            if (error.response && error.response.data) {
+                throw new Error(error.response.data.detail || 'Failed to load video information.');
+            }
+            throw new Error('Could not connect to the backend server to load video.');
+        }
+    },
+
+    getVideoJob: async (videoId: string): Promise<LoadVideoResponse> => {
+        try {
+            const response = await apiClient.get<LoadVideoResponse>(`/video/${encodeURIComponent(videoId)}`);
+            return response.data;
+        } catch (error: any) {
+            if (error.response && error.response.data) {
+                throw new Error(error.response.data.detail || 'Failed to retrieve video details.');
+            }
+            throw new Error('Could not connect to the backend server to retrieve video details.');
+        }
+    },
+
+    generateQuickSummary: async (data: QuickSummaryRequest): Promise<QuickSummaryResponse> => {
+        try {
+            const response = await apiClient.post<QuickSummaryResponse>('/modes/quick-summary', data);
+            return response.data;
+        } catch (error: any) {
+            if (error.response && error.response.data) {
+                throw new Error(error.response.data.detail || error.response.data.error || 'Failed to generate quick summary.');
+            }
+            throw new Error('Could not connect to backend server for quick summary.');
+        }
+    },
+
+    generateDetailedNotes: async (data: DetailedNotesRequest): Promise<DetailedNotesResponse> => {
+        try {
+            const response = await apiClient.post<DetailedNotesResponse>('/modes/detailed-notes', data);
+            return response.data;
+        } catch (error: any) {
+            if (error.response && error.response.data) {
+                throw new Error(error.response.data.detail || error.response.data.error || 'Failed to generate detailed notes.');
+            }
+            throw new Error('Could not connect to backend server for detailed notes.');
+        }
+    },
+
+    askChatbot: async (data: RAGQueryRequest): Promise<RAGQueryResponse> => {
+        try {
+            const response = await apiClient.post<RAGQueryResponse>('/rag/ask', data);
+            return response.data;
+        } catch (error: any) {
+            if (error.response && error.response.data) {
+                throw new Error(error.response.data.detail || error.response.data.error || 'Chatbot query failed.');
+            }
+            throw new Error('Could not connect to backend server for chatbot.');
+        }
+    },
+
+    getRagStatus: async (videoId: string): Promise<RAGStatusResponse> => {
+        try {
+            const response = await apiClient.get<RAGStatusResponse>(`/rag/status/${encodeURIComponent(videoId)}`);
+            return response.data;
+        } catch (error: any) {
+            return {
+                indexed: false,
+                video_id: videoId,
+                chunk_count: 0
+            };
+        }
+    },
+
+    checkHealth: async (): Promise<BackendHealthState> => {
+        try {
+            // First check apiClient which resolves to ${API_URL}/health -> http://127.0.0.1:8000/api/health
+            const response = await apiClient.get<HealthResponse>('/health', { timeout: 4000 });
+            if (response.status === 200 && (response.data?.status === 'healthy' || response.data?.status === 'ok' || response.data?.service === 'NoteTube')) {
+                return {
+                    status: 'online',
+                    message: 'Backend is connected and healthy',
+                    url: BACKEND_BASE_URL,
+                    lastChecked: Date.now()
+                };
+            }
+            return {
+                status: 'error',
+                message: 'Backend Error',
+                details: `Unexpected response status: ${response.status}`,
+                statusCode: response.status,
+                url: BACKEND_BASE_URL,
+                lastChecked: Date.now()
+            };
+        } catch (error: any) {
+            // If primary check returned 404 (nonexistent endpoint under /api), fallback to root /health
+            if (error.response && error.response.status === 404) {
+                try {
+                    const directResponse = await axios.get<HealthResponse>(`${BACKEND_BASE_URL}/health`, { timeout: 4000 });
+                    if (directResponse.status === 200) {
+                        return {
+                            status: 'online',
+                            message: 'Backend is connected and healthy',
+                            url: BACKEND_BASE_URL,
+                            lastChecked: Date.now()
+                        };
+                    }
+                } catch (fallbackError: any) {
+                    if (fallbackError.response) {
+                        return {
+                            status: 'error',
+                            message: 'Backend Error',
+                            details: `Server returned HTTP ${fallbackError.response.status}: ${fallbackError.response.data?.detail || fallbackError.response.statusText || 'Error response'}`,
+                            statusCode: fallbackError.response.status,
+                            url: BACKEND_BASE_URL,
+                            lastChecked: Date.now()
+                        };
+                    }
+                    if (fallbackError.code === 'ECONNABORTED' || fallbackError.message?.toLowerCase().includes('timeout')) {
+                        return {
+                            status: 'timeout',
+                            message: 'Connection Timeout',
+                            details: 'Health check request timed out after 4 seconds.',
+                            url: BACKEND_BASE_URL,
+                            lastChecked: Date.now()
+                        };
+                    }
+                    return {
+                        status: 'offline',
+                        message: 'Backend Offline',
+                        details: `Unable to connect to the NoteTube FastAPI server at ${BACKEND_BASE_URL}.`,
+                        url: BACKEND_BASE_URL,
+                        lastChecked: Date.now()
+                    };
+                }
+            }
+
+            // Server responded with an HTTP error status (4xx / 5xx)
+            if (error.response) {
+                return {
+                    status: 'error',
+                    message: 'Backend Error',
+                    details: `Server returned HTTP ${error.response.status}: ${error.response.data?.detail || error.response.statusText || 'Error response'}`,
+                    statusCode: error.response.status,
+                    url: BACKEND_BASE_URL,
+                    lastChecked: Date.now()
+                };
+            }
+
+            // Health request timed out
+            if (error.code === 'ECONNABORTED' || error.message?.toLowerCase().includes('timeout')) {
+                return {
+                    status: 'timeout',
+                    message: 'Connection Timeout',
+                    details: 'Health check request timed out after 4 seconds.',
+                    url: BACKEND_BASE_URL,
+                    lastChecked: Date.now()
+                };
+            }
+
+            // Connection refused or server unreachable
+            return {
+                status: 'offline',
+                message: 'Backend Offline',
+                details: `Unable to connect to the NoteTube FastAPI server at ${BACKEND_BASE_URL}.`,
+                url: BACKEND_BASE_URL,
+                lastChecked: Date.now()
+            };
+        }
+    },
+
+    getBaseUrl: (): string => BACKEND_BASE_URL,
+    getApiUrl: (): string => API_URL,
 };
+

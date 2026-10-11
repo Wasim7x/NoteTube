@@ -19,6 +19,10 @@ class FallbackProvider(LLMProvider):
         return self.active.model_name
 
     def _is_retryable_error(self, e: Exception) -> bool:
+        # Never silently fall back from local Ollama to cloud providers
+        if self.primary.provider_name.lower() == "ollama":
+            return False
+
         error_str = str(e).lower()
         
         # General checks for HTTP status codes that suggest rate limits or server errors

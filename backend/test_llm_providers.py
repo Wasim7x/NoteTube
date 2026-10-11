@@ -16,12 +16,13 @@ class TestLLMProviders(unittest.TestCase):
         self.client = TestClient(app)
 
     def test_providers_endpoint(self):
-        """Verify GET /api/providers returns all 5 supported providers and models."""
+        """Verify GET /api/providers returns all supported providers including ollama."""
         response = self.client.get("/api/providers")
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertIn("providers", data)
         provider_ids = [p["id"] for p in data["providers"]]
+        self.assertIn("ollama", provider_ids)
         self.assertIn("openai", provider_ids)
         self.assertIn("gemini", provider_ids)
         self.assertIn("anthropic", provider_ids)
@@ -32,6 +33,8 @@ class TestLLMProviders(unittest.TestCase):
             self.assertTrue(len(p["models"]) > 0, f"Provider {p['id']} has no models")
             self.assertTrue(bool(p["default_model"]), f"Provider {p['id']} has no default model")
             self.assertTrue(bool(p["key_placeholder"]))
+            if p["id"] == "ollama":
+                self.assertFalse(p.get("requires_api_key", True))
 
     def test_factory_validation(self):
         """Verify factory enforces provider, model, and api key constraints."""
@@ -63,6 +66,15 @@ class TestLLMProviders(unittest.TestCase):
             self.assertEqual(provider_inst.provider_name, pid)
             self.assertTrue(bool(provider_inst.model_name))
 
+        # Test ollama without api key
+        ollama_inst = create_llm_provider(
+            provider="ollama",
+            model="",
+            api_key=""
+        )
+        self.assertEqual(ollama_inst.provider_name, "ollama")
+        self.assertTrue(bool(ollama_inst.model_name))
+
     def test_summarization_with_provider_injection(self):
         """Verify SummarizationService works seamlessly with any injected LLMProvider."""
         mock_provider = MagicMock(spec=LLMProvider)
@@ -89,14 +101,15 @@ class TestLLMProviders(unittest.TestCase):
         mock_get_transcript.return_value = "This is a detailed tutorial about software architecture and clean code. " * 10
 
         provider_classes = {
-            "openai": ("app.services.llm.openai.OpenAIProvider.generate_content", "gpt-4o-mini"),
-            "groq": ("app.services.llm.groq.GroqProvider.generate_content", "llama-3.3-70b-versatile"),
-            "anthropic": ("app.services.llm.anthropic.AnthropicProvider.generate_content", "claude-3-7-sonnet-latest"),
-            "gemini": ("app.services.llm.gemini.GeminiProvider.generate_content", "gemini-2.5-flash"),
-            "openrouter": ("app.services.llm.openrouter.OpenRouterProvider.generate_content", "deepseek/deepseek-chat"),
+            "openai": ("app.services.llm.openai.OpenAIProvider.generate_content", "gpt-4o-mini", "key-123"),
+            "groq": ("app.services.llm.groq.GroqProvider.generate_content", "llama-3.3-70b-versatile", "key-123"),
+            "anthropic": ("app.services.llm.anthropic.AnthropicProvider.generate_content", "claude-3-7-sonnet-latest", "key-123"),
+            "gemini": ("app.services.llm.gemini.GeminiProvider.generate_content", "gemini-2.5-flash", "key-123"),
+            "openrouter": ("app.services.llm.openrouter.OpenRouterProvider.generate_content", "deepseek/deepseek-chat", "key-123"),
+            "ollama": ("app.services.llm.ollama.OllamaProvider.generate_content", "qwen3:1.7b", ""),
         }
 
-        for pid, (target_path, model) in provider_classes.items():
+        for pid, (target_path, model, api_key) in provider_classes.items():
             with patch(target_path) as mock_gen:
                 mock_gen.return_value = f"# Clean Architecture Notes ({pid})\n\n- Modular design\n- Separation of concerns"
                 
@@ -104,7 +117,7 @@ class TestLLMProviders(unittest.TestCase):
                     url="https://www.youtube.com/watch?v=test12345",
                     provider=pid,
                     model=model,
-                    api_key="valid-test-key-999"
+                    api_key=api_key
                 )
 
                 self.assertTrue(resp.success, f"Failed for provider {pid}: {resp.error}")
@@ -150,6 +163,40 @@ class TestLLMProviders(unittest.TestCase):
             "api_key": ""
         })
         self.assertEqual(response.status_code, 400)
+
+    def test_ollama_status_endpoint(self):
+        """Verify GET /api/ollama/status returns diagnostic structure."""
+        response = self.client.get("/api/ollama/status")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("service_running", data)
+        self.assertIn("configured_model", data)
+        self.assertIn("installed_models", data)
+
+    @patch("app.services.notes_service.youtube_service.get_video_metadata")
+    @patch("app.services.notes_service.transcript_service.get_transcript")
+    @patch("app.services.llm.ollama.OllamaProvider.generate_content")
+    def test_ollama_generate_route_without_api_key(self, mock_gen, mock_get_transcript, mock_get_metadata):
+        """Verify POST /api/notes/generate succeeds for Ollama without providing an API key."""
+        mock_get_metadata.return_value = VideoMetadata(
+            id="test12345",
+            title="Local Ollama Tutorial",
+            thumbnail="https://example.com/thumb.jpg"
+        )
+        mock_get_transcript.return_value = "This is a local AI video tutorial. " * 10
+        mock_gen.return_value = "# Local Ollama Notes\n\n- Runs 100% locally\n- No API keys needed"
+
+        response = self.client.post("/api/notes/generate", json={
+            "youtube_url": "https://www.youtube.com/watch?v=test12345",
+            "provider": "ollama",
+            "model": "qwen3:1.7b",
+            "api_key": ""
+        })
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["provider"], "ollama")
+        self.assertIn("Local Ollama Notes", data["notes"]["content"])
 
 if __name__ == "__main__":
     unittest.main()

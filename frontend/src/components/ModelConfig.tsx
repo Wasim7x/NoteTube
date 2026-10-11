@@ -57,6 +57,8 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
     }
   };
 
+  const isLocalProvider = currentProvider?.id === 'ollama' || currentProvider?.requires_api_key === false;
+
   return (
     <div className="w-full bg-white/80 backdrop-blur-md rounded-2xl border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-6 transition-all duration-300 hover:shadow-[0_8px_30px_rgb(0,0,0,0.07)]">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 mb-5 border-b border-gray-100">
@@ -66,13 +68,21 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
           </div>
           <div>
             <h3 className="font-semibold text-gray-900 text-base">AI Model Configuration</h3>
-            <p className="text-xs text-gray-500">Choose your AI provider and enter your API key directly</p>
+            <p className="text-xs text-gray-500">
+              {isLocalProvider 
+                ? 'Running locally via Ollama with zero cloud API keys' 
+                : 'Choose your AI provider and enter your API key directly'}
+            </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-full text-xs font-medium self-start sm:self-auto border border-emerald-100">
+        <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium self-start sm:self-auto border ${
+          isLocalProvider 
+            ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+            : 'bg-emerald-50 text-emerald-700 border-emerald-100'
+        }`}>
           <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-          <span>Client-side session memory only</span>
+          <span>{isLocalProvider ? '100% Local Inference (Offline Ready)' : 'Client-side session memory only'}</span>
         </div>
       </div>
 
@@ -114,7 +124,7 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
               <button
                 type="button"
                 onClick={() => setIsCustomModel(false)}
-                className="text-[11px] text-primary hover:underline font-medium"
+                className="text-[11px] text-primary hover:underline font-medium cursor-pointer"
               >
                 Back to presets
               </button>
@@ -153,7 +163,7 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
                 value={customModel}
                 onChange={(e) => onCustomModelChange(e.target.value)}
                 disabled={isLoading}
-                placeholder="e.g. gpt-4o-2024-11-20, deepseek-v3"
+                placeholder={isLocalProvider ? "e.g. qwen3:1.7b, mistral, llama3" : "e.g. gpt-4o-2024-11-20, deepseek-v3"}
                 className="w-full h-11 px-3.5 bg-gray-50/70 hover:bg-gray-50 border border-primary focus:ring-2 focus:ring-primary/20 rounded-xl text-sm font-medium text-gray-800 transition-all outline-none disabled:opacity-60"
               />
             </div>
@@ -161,53 +171,70 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
         </div>
       </div>
 
-      {/* API Key Input */}
-      <div className="mt-4">
-        <div className="flex items-center justify-between mb-1.5">
-          <label htmlFor="ai-api-key-input" className="block text-xs font-semibold text-gray-700 uppercase tracking-wider">
-            API Key
-          </label>
-          {currentProvider?.help_url && (
-            <a
-              href={currentProvider.help_url}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-primary hover:text-primaryHover transition-colors font-medium"
-            >
-              <span>Get {currentProvider.name} Key</span>
-              <ExternalLink className="w-3 h-3" />
-            </a>
-          )}
-        </div>
-
-        <div className="relative flex items-center">
-          <div className="absolute left-3.5 text-gray-400 pointer-events-none">
-            <Key className="w-4 h-4" />
+      {/* API Key or Local Mode Indicator */}
+      {isLocalProvider ? (
+        <div className="mt-4 p-3.5 bg-emerald-50/70 border border-emerald-200/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5 text-xs text-emerald-800">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+            </span>
+            <span>
+              <strong>Local Ollama Mode:</strong> Zero API keys required. Notes are synthesized entirely on your laptop.
+            </span>
           </div>
-          <input
-            id="ai-api-key-input"
-            type={showApiKey ? 'text' : 'password'}
-            value={apiKey}
-            onChange={(e) => onApiKeyChange(e.target.value)}
-            disabled={isLoading}
-            placeholder={`Enter your ${currentProvider?.name || 'AI'} API key (${currentProvider?.key_placeholder || 'sk-...'})`}
-            autoComplete="off"
-            spellCheck={false}
-            className={`w-full h-11 pl-10 pr-11 bg-gray-50/70 hover:bg-gray-50 border ${
-              error ? 'border-red-300 focus:border-red-500 focus:ring-red-200' : 'border-gray-200 focus:border-primary focus:ring-primary/20'
-            } focus:ring-2 rounded-xl text-sm font-mono text-gray-800 transition-all outline-none disabled:opacity-60`}
-          />
-          <button
-            type="button"
-            onClick={() => setShowApiKey(!showApiKey)}
-            className="absolute right-3 p-1 text-gray-400 hover:text-gray-600 transition-colors focus:outline-none"
-            title={showApiKey ? 'Hide API Key' : 'Show API Key'}
-          >
-            {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-          </button>
+          <span className="text-[11px] font-mono text-emerald-700 bg-white/90 px-2.5 py-1 rounded-lg border border-emerald-200 self-start sm:self-auto shadow-2xs">
+            http://localhost:11434
+          </span>
         </div>
-        {error && <p className="mt-1.5 text-xs text-red-600 font-medium">{error}</p>}
-      </div>
+      ) : (
+        <div className="mt-4">
+          <div className="flex items-center justify-between mb-1.5">
+            <label htmlFor="ai-api-key-input" className="block text-xs font-semibold text-gray-700 uppercase tracking-wider">
+              API Key
+            </label>
+            {currentProvider?.help_url && (
+              <a
+                href={currentProvider.help_url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-primary hover:text-primaryHover transition-colors font-medium"
+              >
+                <span>Get {currentProvider.name} Key</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
+          </div>
+
+          <div className="relative flex items-center">
+            <div className="absolute left-3.5 text-gray-400 pointer-events-none">
+              <Key className="w-4 h-4" />
+            </div>
+            <input
+              id="ai-api-key-input"
+              type={showApiKey ? 'text' : 'password'}
+              value={apiKey}
+              onChange={(e) => onApiKeyChange(e.target.value)}
+              disabled={isLoading}
+              placeholder={`Enter your ${currentProvider?.name || 'AI'} API key (${currentProvider?.key_placeholder || 'sk-...'})`}
+              autoComplete="off"
+              spellCheck={false}
+              className={`w-full h-11 pl-10 pr-11 bg-gray-50/70 hover:bg-gray-50 border ${
+                error ? 'border-red-300 focus:border-red-500 focus:ring-red-200' : 'border-gray-200 focus:border-primary focus:ring-primary/20'
+              } focus:ring-2 rounded-xl text-sm font-mono text-gray-800 transition-all outline-none disabled:opacity-60`}
+            />
+            <button
+              type="button"
+              onClick={() => setShowApiKey(!showApiKey)}
+              className="absolute right-3 p-1 text-gray-400 hover:text-gray-600 transition-colors focus:outline-none"
+              title={showApiKey ? 'Hide API Key' : 'Show API Key'}
+            >
+              {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+          {error && <p className="mt-1.5 text-xs text-red-600 font-medium">{error}</p>}
+        </div>
+      )}
 
       {/* Helper Footer */}
       <div className="mt-3.5 pt-3 border-t border-gray-50 flex items-center justify-between text-[11px] text-gray-400">
@@ -215,7 +242,7 @@ export const ModelConfig: React.FC<ModelConfigProps> = ({
           <Sparkles className="w-3.5 h-3.5 text-amber-500" />
           <span>Active: <strong className="text-gray-700">{currentProvider?.name}</strong> &rarr; <strong className="text-gray-700">{isCustomModel ? (customModel || 'Custom') : selectedModel}</strong></span>
         </div>
-        <span>Never stored in localStorage</span>
+        <span>{isLocalProvider ? '100% On-Device' : 'Never stored in localStorage'}</span>
       </div>
     </div>
   );

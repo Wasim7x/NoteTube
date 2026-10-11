@@ -1,26 +1,228 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { Header } from './components/Header';
-import { UrlInput } from './components/UrlInput';
-import { ModelConfig } from './components/ModelConfig';
-import { LoadingState } from './components/LoadingState';
-import { NotesViewer } from './components/NotesViewer';
-import { Actions } from './components/Actions';
+import { ModelConfigPage } from './components/ModelConfigPage';
+import { DashboardPage } from './components/DashboardPage';
+import { ResultsPage } from './components/ResultsPage';
 import { api } from './services/api';
-import type { GenerateNotesResponse, ProviderInfo } from './types';
+import { jobStorage } from './services/jobStorage';
+import type {
+  ProviderInfo,
+  LoadVideoResponse,
+  QuickSummaryResponse,
+  DetailedNotesResponse,
+  VideoSlidesResponse,
+  GenerateNotesResponse,
+  BackendHealthState,
+} from './types';
 
-function App() {
-  const [isLoading, setIsLoading] = useState(false);
-  const [data, setData] = useState<GenerateNotesResponse | null>(null);
+interface ProtectedRouteProps {
+  isValidated: boolean;
+  children: React.ReactNode;
+}
+
+function ProtectedRoute({ isValidated, children }: ProtectedRouteProps) {
+  if (!isValidated) {
+    return <Navigate to="/" replace />;
+  }
+  return <>{children}</>;
+}
+
+function AppRoutes() {
+  const navigate = useNavigate();
+
+  // -------------------------------------------------------------
+  // Backend Health & Connectivity State
+  // -------------------------------------------------------------
+  const [backendHealth, setBackendHealth] = useState<BackendHealthState>({
+    status: 'checking',
+    message: 'Checking backend connection...',
+    url: api.getBaseUrl(),
+  });
+
+  const isCheckingRef = useRef<boolean>(false);
+
+  const checkHealthStatus = useCallback(async () => {
+    if (isCheckingRef.current) return;
+    isCheckingRef.current = true;
+    try {
+      const res = await api.checkHealth();
+      setBackendHealth(res);
+    } catch {
+      setBackendHealth({
+        status: 'offline',
+        message: 'Backend Offline',
+        details: `Unable to connect to NoteTube FastAPI server at ${api.getBaseUrl()}.`,
+        url: api.getBaseUrl(),
+        lastChecked: Date.now(),
+      });
+    } finally {
+      isCheckingRef.current = false;
+    }
+  }, []);
+
+  // Poll backend health gently (30s) and on window focus
+  useEffect(() => {
+    let isMounted = true;
+
+    const executeCheck = async () => {
+      if (!isMounted) return;
+      await checkHealthStatus();
+    };
+
+    executeCheck();
+
+    const interval = setInterval(() => {
+      if (isMounted) checkHealthStatus();
+    }, 30000);
+
+    const onFocus = () => {
+      if (isMounted) checkHealthStatus();
+    };
+    window.addEventListener('focus', onFocus);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [checkHealthStatus]);
+
+  // -------------------------------------------------------------
+  // LLM Configuration & Session Validation State
+  // -------------------------------------------------------------
+  // A fresh session starts with false so root URL displays Page 1 (LLM Configuration).
+  // Within an active browser tab, sessionStorage preserves validated state across refreshes.
+  const [isConfigValidated, setIsConfigValidated] = useState<boolean>(() => {
+    try {
+      return sessionStorage.getItem('notetube_session_validated') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [selectedProvider, setSelectedProvider] = useState<string>(() => {
+    try {
+      const savedConfig = localStorage.getItem('notetube_model_config');
+      if (savedConfig) {
+        const parsed = JSON.parse(savedConfig);
+        if (parsed.provider) return parsed.provider;
+      }
+    } catch {}
+    return 'ollama';
+  });
+
+  const [selectedModel, setSelectedModel] = useState<string>(() => {
+    try {
+      const savedConfig = localStorage.getItem('notetube_model_config');
+      if (savedConfig) {
+        const parsed = JSON.parse(savedConfig);
+        if (parsed.model) return parsed.model;
+      }
+    } catch {}
+    return 'qwen3:1.7b';
+  });
+
+  const [isCustomModel, setIsCustomModel] = useState<boolean>(() => {
+    try {
+      const savedConfig = localStorage.getItem('notetube_model_config');
+      if (savedConfig) {
+        const parsed = JSON.parse(savedConfig);
+        if (parsed.isCustomModel !== undefined) return parsed.isCustomModel;
+      }
+    } catch {}
+    return false;
+  });
+
+  const [customModel, setCustomModel] = useState<string>(() => {
+    try {
+      const savedConfig = localStorage.getItem('notetube_model_config');
+      if (savedConfig) {
+        const parsed = JSON.parse(savedConfig);
+        if (parsed.customModel) return parsed.customModel;
+      }
+    } catch {}
+    return '';
+  });
+
+  const [apiKey, setApiKey] = useState<string>(() => {
+    try {
+      return sessionStorage.getItem('notetube_session_api_key') || '';
+    } catch {
+      return '';
+    }
+  });
+
+  // Persist non-sensitive configuration only (do NOT store API secrets in localStorage)
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        'notetube_model_config',
+        JSON.stringify({
+          provider: selectedProvider,
+          model: selectedModel,
+          isCustomModel,
+          customModel,
+        })
+      );
+    } catch {}
+  }, [selectedProvider, selectedModel, isCustomModel, customModel]);
+
+  // Persist API key only in tab-scoped sessionStorage
+  useEffect(() => {
+    try {
+      if (apiKey) {
+        sessionStorage.setItem('notetube_session_api_key', apiKey);
+      } else {
+        sessionStorage.removeItem('notetube_session_api_key');
+      }
+    } catch {}
+  }, [apiKey]);
+
+  // -------------------------------------------------------------
+  // Video & Processing Results State
+  // -------------------------------------------------------------
+  const [loadedVideo, setLoadedVideo] = useState<LoadVideoResponse | null>(null);
   const [lastUrl, setLastUrl] = useState<string>('');
 
-  // Dynamic Provider & Model State
-  const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [selectedProvider, setSelectedProvider] = useState<string>('gemini');
-  const [selectedModel, setSelectedModel] = useState<string>('gemini-2.5-flash');
-  const [isCustomModel, setIsCustomModel] = useState<boolean>(false);
-  const [customModel, setCustomModel] = useState<string>('');
-  const [apiKey, setApiKey] = useState<string>('');
-  const [apiKeyError, setApiKeyError] = useState<string>('');
+  const [summaryData, setSummaryData] = useState<QuickSummaryResponse | null>(null);
+  const [detailedData, setDetailedData] = useState<DetailedNotesResponse | null>(null);
+  const [slidesData, setSlidesData] = useState<VideoSlidesResponse | null>(null);
+  const [completeNotesData, setCompleteNotesData] = useState<GenerateNotesResponse | null>(null);
+
+  // Restore video metadata ONLY if this specific session had loaded a video and refreshed /video
+  useEffect(() => {
+    try {
+      const sessionVideoId = sessionStorage.getItem('notetube_session_video_id');
+      if (sessionVideoId && !loadedVideo) {
+        const stored = jobStorage.getJob(sessionVideoId);
+        if (stored) {
+          setLoadedVideo(stored.videoData);
+          setLastUrl(stored.url);
+          if (stored.summaryData) setSummaryData(stored.summaryData);
+          if (stored.detailedData) setDetailedData(stored.detailedData);
+          if (stored.slidesData) setSlidesData(stored.slidesData);
+          if (stored.completeNotesData) setCompleteNotesData(stored.completeNotesData);
+        }
+      }
+    } catch {}
+  }, [loadedVideo]);
+
+  // Track session video ID when video is loaded or changed
+  const handleSetLoadedVideo: React.Dispatch<React.SetStateAction<LoadVideoResponse | null>> = (action) => {
+    setLoadedVideo((prev) => {
+      const next = typeof action === 'function' ? action(prev) : action;
+      try {
+        if (next && next.video_id) {
+          sessionStorage.setItem('notetube_session_video_id', next.video_id);
+        } else {
+          sessionStorage.removeItem('notetube_session_video_id');
+        }
+      } catch {}
+      return next;
+    });
+  };
 
   // Fetch supported providers on mount
   useEffect(() => {
@@ -30,10 +232,12 @@ function App() {
         const res = await api.getProviders();
         if (isMounted && res.providers && res.providers.length > 0) {
           setProviders(res.providers);
-          // Set initial default provider and model
-          const defaultProv = res.providers.find((p) => p.id === 'gemini') || res.providers[0];
-          setSelectedProvider(defaultProv.id);
-          setSelectedModel(defaultProv.default_model);
+          const savedConfig = localStorage.getItem('notetube_model_config');
+          if (!savedConfig) {
+            const defaultProv = res.providers.find((p) => p.id === 'ollama') || res.providers[0];
+            setSelectedProvider(defaultProv.id);
+            setSelectedModel(defaultProv.default_model);
+          }
         }
       } catch (err) {
         console.error('Failed to load providers:', err);
@@ -46,164 +250,167 @@ function App() {
   }, []);
 
   const getEffectiveModel = (): string => {
-    if (isCustomModel) {
-      return customModel.trim();
-    }
+    if (isCustomModel) return customModel.trim();
     return selectedModel.trim();
   };
 
-  const generateNotes = async (url: string) => {
-    setApiKeyError('');
-    const effectiveModel = getEffectiveModel();
+  const activeProvider = providers.find((p) => p.id === selectedProvider);
 
-    if (!apiKey.trim()) {
-      setApiKeyError('Please provide an API key for your selected provider.');
-      return;
-    }
-
-    if (isCustomModel && !effectiveModel) {
-      setApiKeyError('Please enter a valid custom model name.');
-      return;
-    }
-
-    setIsLoading(true);
-    setLastUrl(url);
-    setData(null);
-
+  // Called after successful provider validation on Page 1
+  const handleModelValidated = () => {
+    setIsConfigValidated(true);
     try {
-      const response = await api.generateNotes({
-        youtube_url: url,
-        provider: selectedProvider,
-        model: effectiveModel,
-        api_key: apiKey.trim(),
-      });
-      setData(response);
-    } catch (error: any) {
-      setData({
-        success: false,
-        error: error.message || 'Something went wrong while generating the notes. Please try again.',
-      });
-    } finally {
-      setIsLoading(false);
-    }
+      sessionStorage.setItem('notetube_session_validated', 'true');
+    } catch {}
+    navigate('/video');
   };
 
-  const handleRegenerate = () => {
-    if (lastUrl) {
-      generateNotes(lastUrl);
-    }
-  };
-
-  const handleNew = () => {
-    setData(null);
+  // Reset Session (Start Fresh Session)
+  const handleResetSession = () => {
+    setIsConfigValidated(false);
+    try {
+      sessionStorage.removeItem('notetube_session_validated');
+      sessionStorage.removeItem('notetube_session_video_id');
+    } catch {}
+    setLoadedVideo(null);
     setLastUrl('');
+    setSummaryData(null);
+    setDetailedData(null);
+    setSlidesData(null);
+    setCompleteNotesData(null);
+    navigate('/');
   };
 
   return (
-    <div className="min-h-screen flex flex-col font-sans bg-gradient-to-b from-gray-50/50 to-white">
-      <Header />
-      
-      <main className="flex-1 w-full max-w-5xl mx-auto px-4 pb-32">
-        {!isLoading && !data && (
-          <UrlInput
-            onSubmit={generateNotes}
-            isLoading={isLoading}
-            hasApiKey={Boolean(apiKey.trim())}
-            onMissingApiKey={() => setApiKeyError('Please enter an API key for your selected AI provider above.')}
-          >
-            {providers.length > 0 && (
-              <ModelConfig
+    <Routes>
+      {/* Route 1: Page 1 — LLM Configuration (/) */}
+      <Route
+        path="/"
+        element={
+          <div className="min-h-screen flex flex-col font-sans bg-gradient-to-b from-gray-50/60 via-white to-gray-50/40 text-gray-900">
+            <Header
+              currentPage="config"
+              onNavigateToWorkspace={() => {
+                if (isConfigValidated) navigate('/video');
+                else navigate('/');
+              }}
+              onResetSession={handleResetSession}
+              providerName={activeProvider?.name || selectedProvider}
+              modelName={getEffectiveModel()}
+              backendStatus={backendHealth.status}
+              backendBaseUrl={backendHealth.url}
+              backendDetails={backendHealth.details}
+              onRetryHealthCheck={checkHealthStatus}
+            />
+            <main className="flex-1 w-full max-w-4xl mx-auto px-4 pb-20 animate-in fade-in duration-300">
+              <ModelConfigPage
                 providers={providers}
                 selectedProvider={selectedProvider}
-                onSelectProvider={(p) => {
-                  setSelectedProvider(p);
-                  setApiKeyError('');
-                }}
+                onSelectProvider={setSelectedProvider}
                 selectedModel={selectedModel}
-                onSelectModel={(m) => {
-                  setSelectedModel(m);
-                  setApiKeyError('');
-                }}
+                onSelectModel={setSelectedModel}
                 isCustomModel={isCustomModel}
                 setIsCustomModel={setIsCustomModel}
                 customModel={customModel}
-                onCustomModelChange={(m) => {
-                  setCustomModel(m);
-                  setApiKeyError('');
-                }}
+                onCustomModelChange={setCustomModel}
                 apiKey={apiKey}
-                onApiKeyChange={(k) => {
-                  setApiKey(k);
-                  if (apiKeyError) setApiKeyError('');
-                }}
-                isLoading={isLoading}
-                error={apiKeyError}
+                onApiKeyChange={setApiKey}
+                onValidated={handleModelValidated}
+                isValidated={isConfigValidated}
+                onContinueToDashboard={() => navigate('/video')}
+                backendStatus={backendHealth.status}
+                onRetryHealthCheck={checkHealthStatus}
               />
-            )}
-          </UrlInput>
-        )}
-
-        {isLoading && (
-          <LoadingState />
-        )}
-
-        {data && !data.success && (
-          <div className="w-full max-w-2xl mx-auto mt-20 p-8 bg-red-50/80 rounded-3xl border border-red-100 text-center shadow-sm">
-            <div className="w-12 h-12 bg-red-100 text-red-600 rounded-2xl flex items-center justify-center mx-auto mb-4 font-bold text-xl">
-              !
-            </div>
-            <h3 className="text-xl font-bold text-red-900 mb-2">Note Generation Failed</h3>
-            <p className="text-red-700 text-sm max-w-md mx-auto mb-6 leading-relaxed">{data.error}</p>
-            <div className="flex items-center justify-center gap-3">
-              <button 
-                onClick={handleNew}
-                className="px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white font-medium text-sm rounded-xl transition-all shadow-sm active:scale-[0.98] cursor-pointer"
-              >
-                Change Settings / Try Again
-              </button>
-            </div>
+            </main>
           </div>
-        )}
+        }
+      />
 
-        {data && data.success && data.notes && (
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
-            {data.video && (
-               <div className="w-full max-w-4xl mx-auto mt-12 flex flex-col md:flex-row items-center gap-6 bg-white p-5 rounded-3xl border border-gray-100 shadow-sm">
-                 <img 
-                    src={data.video.thumbnail} 
-                    alt={data.video.title} 
-                    className="w-full md:w-64 h-auto aspect-video object-cover rounded-2xl shadow-sm"
-                 />
-                 <div className="flex-1">
-                   <h2 className="text-xl font-bold text-gray-900 leading-snug">{data.video.title}</h2>
-                   <a
-                     href={lastUrl} 
-                     target="_blank" 
-                     rel="noreferrer" 
-                     className="text-sm text-primary hover:underline mt-2 inline-block font-medium"
-                   >
-                     Watch original video &rarr;
-                   </a>
-                 </div>
-               </div>
-            )}
-            
-            <NotesViewer
-              notes={data.notes}
-              provider={data.provider || selectedProvider}
-              model={data.model || getEffectiveModel()}
+      {/* Alias for /config -> / */}
+      <Route path="/config" element={<Navigate to="/" replace />} />
+
+      {/* Route 2: Page 2 — Video Processing Dashboard (/video) */}
+      <Route
+        path="/video"
+        element={
+          <ProtectedRoute isValidated={isConfigValidated}>
+            <DashboardPage
+              selectedProvider={selectedProvider}
+              selectedModel={selectedModel}
+              isCustomModel={isCustomModel}
+              customModel={customModel}
+              apiKey={apiKey}
+              onNavigateToConfig={() => navigate('/')}
+              onResetSession={handleResetSession}
+              loadedVideo={loadedVideo}
+              setLoadedVideo={handleSetLoadedVideo}
+              lastUrl={lastUrl}
+              setLastUrl={setLastUrl}
+              summaryData={summaryData}
+              setSummaryData={setSummaryData}
+              detailedData={detailedData}
+              setDetailedData={setDetailedData}
+              slidesData={slidesData}
+              setSlidesData={setSlidesData}
+              completeNotesData={completeNotesData}
+              setCompleteNotesData={setCompleteNotesData}
+              backendStatus={backendHealth.status}
+              backendBaseUrl={backendHealth.url}
+              backendDetails={backendHealth.details}
+              onRetryHealthCheck={checkHealthStatus}
             />
-            
-            <Actions 
-              markdownContent={data.notes.content}
-              title={data.notes.title || data.video?.title || 'NoteTube Notes'}
-              onRegenerate={handleRegenerate}
-              onNew={handleNew}
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Legacy workspace route alias */}
+      <Route path="/workspace" element={<Navigate to="/video" replace />} />
+
+      {/* Route 3: Page 3 — Results Viewer (/results/:jobId) */}
+      <Route
+        path="/results/:jobId"
+        element={
+          <ProtectedRoute isValidated={isConfigValidated}>
+            <ResultsPage
+              selectedProvider={selectedProvider}
+              selectedModel={selectedModel}
+              isCustomModel={isCustomModel}
+              customModel={customModel}
+              apiKey={apiKey}
+              onNavigateToConfig={() => navigate('/')}
+              onResetSession={handleResetSession}
+              loadedVideo={loadedVideo}
+              setLoadedVideo={handleSetLoadedVideo}
+              lastUrl={lastUrl}
+              setLastUrl={setLastUrl}
+              summaryData={summaryData}
+              setSummaryData={setSummaryData}
+              detailedData={detailedData}
+              setDetailedData={setDetailedData}
+              slidesData={slidesData}
+              setSlidesData={setSlidesData}
+              completeNotesData={completeNotesData}
+              setCompleteNotesData={setCompleteNotesData}
+              backendStatus={backendHealth.status}
+              backendBaseUrl={backendHealth.url}
+              backendDetails={backendHealth.details}
+              onRetryHealthCheck={checkHealthStatus}
             />
-          </div>
-        )}
-      </main>
-    </div>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Catch-all route */}
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+}
+
+function App() {
+  return (
+    <BrowserRouter>
+      <AppRoutes />
+    </BrowserRouter>
   );
 }
 

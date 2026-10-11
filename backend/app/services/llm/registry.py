@@ -15,10 +15,26 @@ class ProviderInfo(BaseModel):
     default_model: str
     key_placeholder: str
     help_url: str
+    requires_api_key: bool = True
     models: List[ModelOption]
 
 # Provider Registry mapping
 PROVIDER_METADATA: Dict[str, ProviderInfo] = {
+    "ollama": ProviderInfo(
+        id="ollama",
+        name="Ollama (Local)",
+        description="Run local models directly on your hardware without cloud API keys or subscriptions.",
+        default_model="qwen3:1.7b",
+        key_placeholder="Not required (Local)",
+        help_url="https://ollama.com",
+        requires_api_key=False,
+        models=[
+            ModelOption(id="qwen3:1.7b", name="Qwen 3 (1.7B)", description="Fast & lightweight local model (Installed)", is_recommended=True),
+            ModelOption(id="qwen3.5:latest", name="Qwen 3.5 (9.7B)", description="High capability local model (Installed)"),
+            ModelOption(id="llama3.2:3b", name="Llama 3.2 (3B)", description="Lightweight Meta model"),
+            ModelOption(id="mistral:7b", name="Mistral (7B)", description="Balanced general purpose model"),
+        ]
+    ),
     "gemini": ProviderInfo(
         id="gemini",
         name="Google Gemini",
@@ -109,4 +125,54 @@ def get_registered_provider_class(provider_id: str) -> Type[LLMProvider]:
     return _PROVIDER_CLASSES[pid]
 
 def get_all_providers_info() -> List[ProviderInfo]:
-    return list(PROVIDER_METADATA.values())
+    from app.config import settings
+    from app.services.llm.ollama import get_installed_models
+
+    providers_copy = [p.model_copy(deep=True) for p in PROVIDER_METADATA.values()]
+
+    # If ollama provider is present, enrich its model list with locally installed models
+    ollama_prov = next((p for p in providers_copy if p.id == "ollama"), None)
+    if ollama_prov:
+        installed = get_installed_models(base_url=settings.OLLAMA_BASE_URL, timeout=1.0)
+        if installed:
+            installed_set = set(m.lower() for m in installed)
+            new_models: List[ModelOption] = []
+            
+            cfg_model = settings.OLLAMA_MODEL
+            # Default to configured model if installed, otherwise first installed
+            if any(cfg_model.lower() == m.lower() for m in installed):
+                ollama_prov.default_model = cfg_model
+            else:
+                ollama_prov.default_model = installed[0]
+
+            for inst_name in installed:
+                is_rec = (inst_name.lower() == cfg_model.lower())
+                desc = "Installed locally on your machine"
+                if is_rec:
+                    desc += " (Configured default)"
+                new_models.append(
+                    ModelOption(
+                        id=inst_name,
+                        name=inst_name,
+                        description=desc,
+                        is_recommended=is_rec
+                    )
+                )
+
+            # Also keep non-installed popular presets
+            for existing in PROVIDER_METADATA["ollama"].models:
+                if existing.id.lower() not in installed_set:
+                    new_models.append(
+                        ModelOption(
+                            id=existing.id,
+                            name=existing.name,
+                            description=f"{existing.description} (Not installed - will pull if selected)",
+                            is_recommended=False
+                        )
+                    )
+            ollama_prov.models = new_models
+
+    # Reorder so active provider in settings.LLM_PROVIDER appears first
+    target_lead = settings.LLM_PROVIDER.lower().strip()
+    providers_copy.sort(key=lambda p: 0 if p.id.lower() == target_lead else 1)
+    return providers_copy
