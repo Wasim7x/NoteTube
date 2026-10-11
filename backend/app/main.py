@@ -75,7 +75,7 @@ allowed_origins = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(dict.fromkeys([o for o in allowed_origins if o])),
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?$",
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|.*\.onrender\.com)(:[0-9]+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
