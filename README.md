@@ -106,13 +106,13 @@ flowchart TD
     end
 
     subgraph API["FastAPI Application Backend (Port 8000)"]
-        Router_Health["/health & /api/health"]
-        Router_Providers["/api/providers & /validate"]
-        Router_Video["/api/video/load & /{video_id}"]
-        Router_Modes["/api/modes/quick-summary & detailed-notes"]
-        Router_Notes["/api/notes/generate & /generate-stream (SSE)"]
-        Router_Slides["/api/slides/extract & /download-ppt"]
-        Router_RAG["/api/rag/ask & /status/{video_id}"]
+        Router_Health["/health and /api/health"]
+        Router_Providers["/api/providers and /validate"]
+        Router_Video["/api/video/load and /{video_id}"]
+        Router_Modes["/api/modes/quick-summary and detailed-notes"]
+        Router_Notes["/api/notes/generate and /generate-stream (SSE)"]
+        Router_Slides["/api/slides/extract and /download-ppt"]
+        Router_RAG["/api/rag/ask and /status/{video_id}"]
     end
 
     subgraph Ingestion["Video Ingestion & Processing Pipeline"]
@@ -132,34 +132,34 @@ flowchart TD
     end
 
     subgraph Storage["Persistence & Local Cache"]
-        Disk_Slides["backend/data/slides/{video_id}/*.jpg & .pptx"]
+        Disk_Slides["backend/data/slides/{video_id}/*.jpg and .pptx"]
         Disk_RAG["backend/data/rag/{video_id}/index.json"]
         Session_Store["Browser sessionStorage (API Keys & Session State)"]
     end
 
     %% Interactions
-    UI_Config -->|POST /api/providers/validate| Router_Providers
-    UI_Dash -->|POST /api/video/load| Router_Video
+    UI_Config -->|"POST /api/providers/validate"| Router_Providers
+    UI_Dash -->|"POST /api/video/load"| Router_Video
     Router_Video --> YT_Service
     Router_Video --> Trans_Service
 
-    UI_Dash -->|POST /api/modes/*| Router_Modes
+    UI_Dash -->|"POST /api/modes"| Router_Modes
     Router_Modes --> LLM_Layer
 
-    UI_Dash -->|POST /api/slides/extract| Router_Slides
+    UI_Dash -->|"POST /api/slides/extract"| Router_Slides
     Router_Slides --> CV_Engine
     CV_Engine --> Disk_Slides
     Router_Slides --> PPT_Engine
     PPT_Engine --> Disk_Slides
 
-    UI_Chat -->|POST /api/rag/ask| Router_RAG
+    UI_Chat -->|"POST /api/rag/ask"| Router_RAG
     Router_RAG --> Disk_RAG
     Router_RAG --> LLM_Layer
 
     Router_Providers --> LLM_Layer
     Router_Notes --> LLM_Layer
 
-    UI_Results -->|GET /api/slides/{id}/download-ppt| Router_Slides
+    UI_Results -->|"GET /api/slides/{id}/download-ppt"| Router_Slides
 ```
 
 ### Component Flow
